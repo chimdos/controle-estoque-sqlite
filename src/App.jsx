@@ -34,6 +34,8 @@ export default function App() {
                     locateFile: () => SQL_WASM_URL
                 });
 
+                window.SQL = SQL; 
+
                 const savedDb = localStorage.getItem("estoque_sqlite_db");
                 let database;
 

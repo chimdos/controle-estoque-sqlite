@@ -1,8 +1,8 @@
-# 📦 Controle de Estoque - Serverless SQLite (WASM)
+# Controle de Estoque - Serverless SQLite (WASM)
 
 Aplicação web de gerenciamento de inventário de alta performance, executando um banco de dados relacional completo **diretamente no navegador** através de WebAssembly.
 
-## 🚀 Sobre o Projeto
+## Sobre o Projeto
 
 Este sistema foi desenvolvido para demonstrar uma arquitetura **Local-First** e **Serverless Client-Side**. Diferente de aplicações web tradicionais que dependem de uma API e um banco de dados na nuvem, este projeto roda o motor do **SQLite** dentro da memória do usuário.
 
@@ -11,7 +11,7 @@ Isso garante:
 2.  **Velocidade:** Zero latência de rede para operações de banco de dados.
 3.  **Portabilidade:** O banco de dados é um arquivo físico (`.sqlite`) que pode ser transportado.
 
-## ✨ Funcionalidades
+## Funcionalidades
 
 * **CRUD Completo via SQL:**
     * Criação, Leitura, Atualização e Remoção de produtos usando comandos SQL reais (`INSERT`, `SELECT`, `UPDATE`, `DELETE`).
@@ -25,14 +25,14 @@ Isso garante:
     * Feedback visual para estoques baixos (alertas coloridos).
     * Filtros de busca instantâneos.
 
-## 🛠️ Tecnologias Utilizadas
+## Tecnologias Utilizadas
 
 * **Frontend:** React.js (Vite)
 * **Banco de Dados:** SQLite (via `sql.js` / WebAssembly)
 * **Estilização:** Tailwind CSS
 * **Ícones:** Lucide React
 
-## 🔧 Como Executar o Projeto
+## Como Executar o Projeto
 
 ### Pré-requisitos
 * Node.js instalado (v18 ou superior recomendado)
@@ -62,13 +62,13 @@ Isso garante:
 5.  **Acesse no navegador:**
     Abra o link exibido no terminal (geralmente `http://localhost:5173`).
 
-## 📂 Estrutura de Arquivos
+## Estrutura de Arquivos
 
 * `src/App.jsx`: Contém toda a lógica da aplicação, incluindo a inicialização do WASM, manipuladores de eventos e renderização da UI.
 * `src/assets`: Recursos estáticos.
 * `public/`: Contém os binários do `sql-wasm` (caso opte por rodar offline sem CDN).
 
-## 🧠 Decisões de Arquitetura
+## Decisões de Arquitetura
 
 **Por que SQLite no Navegador?**
 Para este MVP (Produto Viável Mínimo), optou-se por remover a complexidade de configurar um servidor Backend (Node/Python) + Banco de Dados (Postgres/MySQL).

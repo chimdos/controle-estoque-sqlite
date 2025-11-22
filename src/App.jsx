@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Trash2, Plus, Package, Save, Database, AlertCircle, Loader2, Search, Edit, X, Download, Upload } from 'lucide-react';
-
-const SQL_JS_URL = "/sql-wasm.js";
-const SQL_WASM_URL = "/sql-wasm.wasm";
+// Certifique-se de ter instalado o sql.js: npm install sql.js
+const SQL_JS_URL = "sql-wasm.js";
+const SQL_WASM_URL = "sql-wasm.wasm";
+import initSqlJs from 'sql.js';
 
 export default function App() {
     const [db, setDb] = useState(null);
@@ -22,45 +23,83 @@ export default function App() {
     useEffect(() => {
         const initDB = async () => {
             try {
-                if (!window.initSqlJs) {
-                    const script = document.createElement('script');
-                    script.src = SQL_JS_URL;
-                    script.async = true;
-                    document.body.appendChild(script);
-                    await new Promise((resolve) => script.onload = resolve);
-                }
+                // Detecta se estamos rodando no Android via AssetLoader ou no PC
+                const isAndroidAssetLoader = window.location.hostname === 'appassets.androidplatform.net';
+                
+                // Define a URL base para os arquivos (wasm e sqlite)
+                // No Android, usamos o caminho absoluto virtual. No PC, o relativo './'
+                const baseUrl = isAndroidAssetLoader 
+                    ? 'https://appassets.androidplatform.net/assets/' 
+                    : './';
 
-                const SQL = await window.initSqlJs({
-                    locateFile: () => SQL_WASM_URL
+                console.log("Ambiente detectado:", isAndroidAssetLoader ? "Android WebView" : "Web Browser");
+                console.log("Base URL para assets:", baseUrl);
+
+                // Inicializa o SQL.js com o caminho correto do arquivo WASM
+                const SQL = await initSqlJs({
+                    // A função locateFile permite dizer ao sql.js onde buscar o .wasm
+                    locateFile: file => `${baseUrl}${file}`
                 });
 
+                // Guarda referência global para depuração, se necessário
                 window.SQL = SQL; 
 
+                // Tenta recuperar dados salvos no localStorage primeiro (persistência simples)
                 const savedDb = localStorage.getItem("estoque_sqlite_db");
                 let database;
 
                 if (savedDb) {
+                    console.log("Carregando banco de dados do localStorage...");
                     const uInt8Array = new Uint8Array(JSON.parse(savedDb));
                     database = new SQL.Database(uInt8Array);
                 } else {
-                    database = new SQL.Database();
-                    database.run(`
-            CREATE TABLE IF NOT EXISTS produtos (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              nome TEXT NOT NULL,
-              preco REAL NOT NULL,
-              quantidade INTEGER NOT NULL,
-              categoria TEXT
-            );
-          `);
+                    // Se não houver localStorage, tenta carregar o arquivo inicial 'dados_apresentacao.sqlite'
+                    console.log(`Tentando baixar banco inicial de: ${baseUrl}dados_apresentacao.sqlite`);
+                    
+                    try {
+                        const response = await fetch(`${baseUrl}dados_apresentacao.sqlite`);
+                        
+                        if (response.ok) {
+                            const buf = await response.arrayBuffer();
+                            database = new SQL.Database(new Uint8Array(buf));
+                            console.log("Banco de dados inicial carregado com sucesso!");
+                        } else {
+                            throw new Error(`Arquivo inicial não encontrado (Status: ${response.status})`);
+                        }
+                    } catch (fetchErr) {
+                        console.warn("Falha ao carregar arquivo inicial, criando banco vazio.", fetchErr);
+                        // Fallback: Cria um banco novo vazio na memória se o arquivo não for encontrado
+                        database = new SQL.Database();
+                        database.run(`
+                            CREATE TABLE IF NOT EXISTS produtos (
+                              id INTEGER PRIMARY KEY AUTOINCREMENT,
+                              nome TEXT NOT NULL,
+                              preco REAL NOT NULL,
+                              quantidade INTEGER NOT NULL,
+                              categoria TEXT
+                            );
+                        `);
+                    }
                 }
 
                 setDb(database);
+                // Garante que a tabela existe (mesmo se carregou um arquivo corrompido/velho)
+                database.run(`
+                    CREATE TABLE IF NOT EXISTS produtos (
+                      id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      nome TEXT NOT NULL,
+                      preco REAL NOT NULL,
+                      quantidade INTEGER NOT NULL,
+                      categoria TEXT
+                    );
+                `);
+                
                 atualizarLista(database);
                 setLoading(false);
+
             } catch (err) {
-                console.error("Falha ao iniciar SQLite:", err);
-                setError("Não foi possível carregar o motor do banco de dados.");
+                console.error("ERRO FATAL ao iniciar SQLite:", err);
+                setError(`Falha na inicialização: ${err.message}`);
                 setLoading(false);
             }
         };
@@ -70,46 +109,58 @@ export default function App() {
 
     // 2. Persistência no LocalStorage
     const salvarBanco = (database) => {
-        const data = database.export();
-        const array = Array.from(data);
-        localStorage.setItem("estoque_sqlite_db", JSON.stringify(array));
+        try {
+            const data = database.export();
+            const array = Array.from(data);
+            localStorage.setItem("estoque_sqlite_db", JSON.stringify(array));
+        } catch (e) {
+            console.error("Erro ao salvar no localStorage:", e);
+        }
     };
 
     // 3. Função R (Read)
     const atualizarLista = (database = db) => {
         if (!database) return;
-        const resultado = database.exec("SELECT * FROM produtos ORDER BY id DESC");
+        try {
+            const resultado = database.exec("SELECT * FROM produtos ORDER BY id DESC");
 
-        if (resultado.length > 0 && resultado[0].values) {
-            const colunas = resultado[0].columns;
-            const valores = resultado[0].values;
+            if (resultado.length > 0 && resultado[0].values) {
+                const colunas = resultado[0].columns;
+                const valores = resultado[0].values;
 
-            const listaFormatada = valores.map(row => {
-                let obj = {};
-                colunas.forEach((col, index) => {
-                    obj[col] = row[index];
+                const listaFormatada = valores.map(row => {
+                    let obj = {};
+                    colunas.forEach((col, index) => {
+                        obj[col] = row[index];
+                    });
+                    return obj;
                 });
-                return obj;
-            });
-            setProdutos(listaFormatada);
-        } else {
-            setProdutos([]);
+                setProdutos(listaFormatada);
+            } else {
+                setProdutos([]);
+            }
+        } catch (e) {
+            console.error("Erro ao ler tabela:", e);
         }
     };
 
-    // === NOVAS FUNÇÕES DE EXPORTAR / IMPORTAR ===
+    // === FUNÇÕES DE EXPORTAR / IMPORTAR ===
 
     const handleExportarBanco = () => {
         if (!db) return;
-        const data = db.export();
-        const blob = new Blob([data], { type: 'application/x-sqlite3' });
-        const url = URL.createObjectURL(blob);
+        try {
+            const data = db.export();
+            const blob = new Blob([data], { type: 'application/x-sqlite3' });
+            const url = URL.createObjectURL(blob);
 
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'meu_estoque.sqlite';
-        a.click();
-        URL.revokeObjectURL(url);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'meu_estoque.sqlite';
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            alert("Erro ao exportar: " + e.message);
+        }
     };
 
     const handleImportarBanco = (e) => {
@@ -191,12 +242,16 @@ export default function App() {
         if (!db) return;
         if (!window.confirm("Tem certeza que deseja excluir este item?")) return;
 
-        db.run("DELETE FROM produtos WHERE id = ?", [id]);
-        salvarBanco(db);
-        atualizarLista(db);
+        try {
+            db.run("DELETE FROM produtos WHERE id = ?", [id]);
+            salvarBanco(db);
+            atualizarLista(db);
 
-        if (editingId === id) {
-            handleCancelar();
+            if (editingId === id) {
+                handleCancelar();
+            }
+        } catch (err) {
+            alert("Erro ao remover: " + err.message);
         }
     };
 
@@ -218,7 +273,7 @@ export default function App() {
             <div className="flex flex-col items-center justify-center h-screen bg-slate-50 text-slate-600">
                 <Loader2 className="w-10 h-10 animate-spin mb-4 text-blue-600" />
                 <p className="text-lg font-medium">Carregando Banco de Dados SQLite...</p>
-                <p className="text-sm text-slate-400">Baixando WebAssembly (WASM)</p>
+                <p className="text-sm text-slate-400">Inicializando WebAssembly (WASM)</p>
             </div>
         );
     }

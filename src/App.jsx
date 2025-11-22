@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Trash2, Plus, Package, Save, Database, AlertCircle, Loader2, Search, Edit, X, Download, Upload } from 'lucide-react';
-// Certifique-se de ter instalado o sql.js: npm install sql.js
-const SQL_JS_URL = "sql-wasm.js";
-const SQL_WASM_URL = "sql-wasm.wasm";
-import initSqlJs from 'sql.js';
+
+// ---------------------------------------------------------------------------
+// IMPORTANTE: Não importamos 'sql.js' aqui via import do ES Module.
+// Ele é carregado como script estático no index.html para evitar erros de minificação do Vite.
+// Usamos a variável global window.initSqlJs.
+// ---------------------------------------------------------------------------
 
 export default function App() {
     const [db, setDb] = useState(null);
@@ -23,67 +25,58 @@ export default function App() {
     useEffect(() => {
         const initDB = async () => {
             try {
-                // Detecta se estamos rodando no Android via AssetLoader ou no PC
+                // Detecta o ambiente (Android WebView vs Navegador PC)
                 const isAndroidAssetLoader = window.location.hostname === 'appassets.androidplatform.net';
                 
-                // Define a URL base para os arquivos (wasm e sqlite)
-                // No Android, usamos o caminho absoluto virtual. No PC, o relativo './'
+                // Define a URL base. No Android, usamos o caminho absoluto virtual.
                 const baseUrl = isAndroidAssetLoader 
                     ? 'https://appassets.androidplatform.net/assets/' 
                     : './';
 
-                console.log("Ambiente detectado:", isAndroidAssetLoader ? "Android WebView" : "Web Browser");
-                console.log("Base URL para assets:", baseUrl);
+                console.log("Inicializando via Script Global. BaseURL:", baseUrl);
 
-                // Inicializa o SQL.js com o caminho correto do arquivo WASM
-                const SQL = await initSqlJs({
-                    // A função locateFile permite dizer ao sql.js onde buscar o .wasm
+                // VERIFICAÇÃO CRÍTICA:
+                // Garante que o <script src="./sql-wasm.js"> no index.html rodou.
+                if (typeof window.initSqlJs !== 'function') {
+                    throw new Error("A biblioteca SQL.js não foi carregada. Verifique se sql-wasm.js está na pasta public e referenciado no index.html.");
+                }
+
+                // Inicializa usando a variável GLOBAL window.initSqlJs
+                const SQL = await window.initSqlJs({
+                    // Diz onde está o arquivo .wasm (usando a URL base correta)
                     locateFile: file => `${baseUrl}${file}`
                 });
 
-                // Guarda referência global para depuração, se necessário
-                window.SQL = SQL; 
+                window.SQL = SQL; // Salva referência para debug
 
-                // Tenta recuperar dados salvos no localStorage primeiro (persistência simples)
+                // Lógica de persistência/carregamento
                 const savedDb = localStorage.getItem("estoque_sqlite_db");
                 let database;
 
                 if (savedDb) {
-                    console.log("Carregando banco de dados do localStorage...");
+                    console.log("Carregando banco do localStorage...");
                     const uInt8Array = new Uint8Array(JSON.parse(savedDb));
                     database = new SQL.Database(uInt8Array);
                 } else {
-                    // Se não houver localStorage, tenta carregar o arquivo inicial 'dados_apresentacao.sqlite'
-                    console.log(`Tentando baixar banco inicial de: ${baseUrl}dados_apresentacao.sqlite`);
-                    
+                    // Tenta baixar o banco inicial da pasta public/assets
+                    console.log(`Baixando banco inicial de: ${baseUrl}dados_apresentacao.sqlite`);
                     try {
                         const response = await fetch(`${baseUrl}dados_apresentacao.sqlite`);
                         
                         if (response.ok) {
                             const buf = await response.arrayBuffer();
                             database = new SQL.Database(new Uint8Array(buf));
-                            console.log("Banco de dados inicial carregado com sucesso!");
+                            console.log("Banco inicial carregado com sucesso!");
                         } else {
                             throw new Error(`Arquivo inicial não encontrado (Status: ${response.status})`);
                         }
                     } catch (fetchErr) {
-                        console.warn("Falha ao carregar arquivo inicial, criando banco vazio.", fetchErr);
-                        // Fallback: Cria um banco novo vazio na memória se o arquivo não for encontrado
+                        console.warn("Banco inicial não encontrado, criando novo vazio.", fetchErr);
                         database = new SQL.Database();
-                        database.run(`
-                            CREATE TABLE IF NOT EXISTS produtos (
-                              id INTEGER PRIMARY KEY AUTOINCREMENT,
-                              nome TEXT NOT NULL,
-                              preco REAL NOT NULL,
-                              quantidade INTEGER NOT NULL,
-                              categoria TEXT
-                            );
-                        `);
                     }
                 }
 
-                setDb(database);
-                // Garante que a tabela existe (mesmo se carregou um arquivo corrompido/velho)
+                // Garante que a tabela existe
                 database.run(`
                     CREATE TABLE IF NOT EXISTS produtos (
                       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,13 +86,14 @@ export default function App() {
                       categoria TEXT
                     );
                 `);
-                
+
+                setDb(database);
                 atualizarLista(database);
                 setLoading(false);
 
             } catch (err) {
-                console.error("ERRO FATAL ao iniciar SQLite:", err);
-                setError(`Falha na inicialização: ${err.message}`);
+                console.error("ERRO FATAL AO INICIAR:", err);
+                setError(`Falha crítica: ${err.message}`);
                 setLoading(false);
             }
         };
@@ -118,7 +112,7 @@ export default function App() {
         }
     };
 
-    // 3. Função R (Read)
+    // 3. Leitura
     const atualizarLista = (database = db) => {
         if (!database) return;
         try {
@@ -141,11 +135,11 @@ export default function App() {
             }
         } catch (e) {
             console.error("Erro ao ler tabela:", e);
+            setError("Erro ao ler dados do banco.");
         }
     };
 
     // === FUNÇÕES DE EXPORTAR / IMPORTAR ===
-
     const handleExportarBanco = () => {
         if (!db) return;
         try {
@@ -159,7 +153,7 @@ export default function App() {
             a.click();
             URL.revokeObjectURL(url);
         } catch (e) {
-            alert("Erro ao exportar: " + e.message);
+            alert("Erro ao exportar arquivo: " + e.message);
         }
     };
 
@@ -171,13 +165,12 @@ export default function App() {
         reader.onload = () => {
             try {
                 const uInt8Array = new Uint8Array(reader.result);
-                // Reinicia o SQL.js com o novo arquivo
                 const newDb = new window.SQL.Database(uInt8Array);
 
                 setDb(newDb);
-                salvarBanco(newDb); // Salva no localStorage
+                salvarBanco(newDb);
                 atualizarLista(newDb);
-                alert("Banco de dados carregado com sucesso!");
+                alert("Banco de dados importado com sucesso!");
             } catch (err) {
                 alert("Erro ao ler arquivo: " + err.message);
             }
@@ -185,7 +178,7 @@ export default function App() {
         reader.readAsArrayBuffer(file);
     };
 
-    // 4. Função C (Create) e U (Update)
+    // 4. CRUD (Salvar)
     const handleSalvar = (e) => {
         e.preventDefault();
         if (!db) return;
@@ -268,6 +261,7 @@ export default function App() {
         p.categoria.toLowerCase().includes(filtro.toLowerCase())
     );
 
+    // RENDERIZAÇÃO
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center h-screen bg-slate-50 text-slate-600">
@@ -282,7 +276,6 @@ export default function App() {
         <div className="min-h-screen bg-slate-100 font-sans text-slate-800 p-4 md:p-8">
             <div className="max-w-5xl mx-auto space-y-6">
 
-                {/* Header */}
                 <header className="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                     <div className="flex items-center gap-3 mb-4 md:mb-0">
                         <div className="bg-blue-600 p-3 rounded-lg text-white">
@@ -301,14 +294,11 @@ export default function App() {
                             <button
                                 onClick={handleExportarBanco}
                                 className="flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition border border-slate-300"
-                                title="Baixar arquivo .sqlite"
                             >
-                                <Download size={16} />
-                                Exportar
+                                <Download size={16} /> Exportar
                             </button>
                             <label className="flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium transition border border-slate-300 cursor-pointer">
-                                <Upload size={16} />
-                                Importar
+                                <Upload size={16} /> Importar
                                 <input
                                     type="file"
                                     accept=".sqlite,.db"
@@ -341,6 +331,8 @@ export default function App() {
                 )}
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                    {/* Coluna Esquerda: Formulário */}
                     <div className="lg:col-span-1">
                         <div className={`p-6 rounded-xl shadow-sm border sticky top-6 transition-colors ${editingId ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'}`}>
                             <h2 className={`text-lg font-bold mb-4 flex items-center justify-between ${editingId ? 'text-amber-700' : 'text-slate-800'}`}>
@@ -433,6 +425,7 @@ export default function App() {
                         </div>
                     </div>
 
+                    {/* Coluna Direita: Lista e Filtros */}
                     <div className="lg:col-span-2 flex flex-col gap-4">
                         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center gap-3">
                             <Search className="text-slate-400" size={20} />

@@ -1,13 +1,22 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vitejs.dev/config/
 export default defineConfig({
-  // Força o Vite a usar caminhos absolutos que funcionam no AssetLoader
-  base: './',
+  // URL base para o AssetLoader do Android
+  base: 'https://appassets.androidplatform.net/assets/',
   plugins: [react()],
   build: {
-    target: 'esnext', // Garante suporte a recursos modernos
-    outDir: 'dist'
+    target: 'es2020', // Necessário para suporte a BigInt e WASM
+    minify: false,    // Ajuda no debug
+    rollupOptions: {
+        output: {
+            entryFileNames: 'assets/[name].js',
+            chunkFileNames: 'assets/[name].js',
+            assetFileNames: 'assets/[name].[ext]'
+        }
+    }
+  },
+  optimizeDeps: {
+    exclude: ['sql.js'] // Impede o Vite de tentar otimizar essa lib
   }
 })

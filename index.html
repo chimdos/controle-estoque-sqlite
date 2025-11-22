@@ -3,10 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    
     <title>Controle de Estoque</title>
+    
+    <!-- MUDANÇA CRÍTICA: Carregamos o SQL.js aqui, como um script global. -->
+    <!-- O Vite NÃO vai minificar ou quebrar isso. -->
+    <script src="./sql-wasm.js"></script>
+    
   </head>
   <body>
     <div id="root"></div>
